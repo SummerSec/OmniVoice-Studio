@@ -1134,7 +1134,7 @@ _INSTALL_HINTS: dict[str, str] = {
     "cosyvoice":     "git clone --recursive FunAudioLLM/CosyVoice + pip install -r requirements.txt + SoX",
     "kittentts":     "pip install kittentts  (ONNX, CPU-only, ~80 MB)",
     "mlx-audio":     "pip install mlx-audio  (Apple Silicon only)",
-    "voxcpm2":       "pip install voxcpm2    (requires CUDA GPU)",
+    "voxcpm2":       "pip install voxcpm     (requires CUDA GPU)",
     "moss-tts-nano": "pip install moss-tts-nano  (transformers-based)",
     "indextts2":     "git clone index-tts/index-tts && uv pip install -e .  (NOT uv sync --all-extras)",
     "gpt-sovits":    "External API server — start api_v2.py on port 9880",

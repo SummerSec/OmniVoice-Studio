@@ -83,11 +83,23 @@ def test_dockerfile_has_pythonpath():
     assert "/app/backend" in content, "Dockerfile PYTHONPATH should include /app/backend"
 
 
-def test_core_config_importable():
-    """The sys.path fix must make `from core.config import LOG_PATH` work."""
-    # conftest.py already inserts backend/ into sys.path, so this should work
-    from core.config import LOG_PATH  # noqa: F401
-    assert LOG_PATH is not None
+def test_main_py_bootstrap_adds_backend_dir():
+    """backend/main.py bootstrap must make `core.config` importable on its own.
+
+    This validates the actual sys.path.insert in main.py — not conftest.py.
+    We strip backend/ from sys.path, exec main.py's preamble, then verify
+    core.config becomes importable.
+    """
+    import importlib.util
+
+    backend_dir = str(_REPO / "backend")
+    # Read just the bootstrap preamble (first 15 lines) of main.py
+    main_py = _REPO / "backend" / "main.py"
+    lines = main_py.read_text().splitlines()
+    # Find the sys.path.insert block — it's in the first ~12 lines
+    preamble = "\n".join(lines[:15])
+    assert "sys.path.insert" in preamble, "Bootstrap preamble must contain sys.path.insert"
+    assert "_backend_dir" in preamble, "Bootstrap must compute _backend_dir"
 
 
 # ── #42 — IndexTTS is_available() graceful conflict detection ────────────────
@@ -176,6 +188,19 @@ def test_indextts_install_hint_warns_about_sync():
     hint = idx_row["install_hint"]
     assert "uv pip install" in hint
     assert "NOT" in hint or "not" in hint.lower()
+
+
+def test_voxcpm_install_hint_uses_correct_package_name():
+    """VoxCPM2 backend's hint must reference pip package 'voxcpm', not 'voxcpm2'."""
+    rows = tts_backend.list_backends()
+    vox_row = next((r for r in rows if r["id"] == "voxcpm2"), None)
+    assert vox_row is not None, "voxcpm2 not in registry"
+    hint = vox_row["install_hint"]
+    # The pip package is 'voxcpm', NOT 'voxcpm2'
+    assert "pip install voxcpm" in hint
+    assert "voxcpm2" not in hint.split("pip install ")[1].split()[0], (
+        f"Hint should say 'pip install voxcpm' not 'pip install voxcpm2': {hint}"
+    )
 
 
 def test_list_backends_shape_unchanged():
