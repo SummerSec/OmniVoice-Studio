@@ -561,8 +561,8 @@ export default function DubTab(props) {
                     {dubStep === 'generating' && (
                       <>
                         <div className="dub-gen-overlay__stats">
-                          <span>⏱ {fmtDur(genElapsed)} elapsed</span>
-                          {genRemaining !== null && <span>~{fmtDur(genRemaining)} remaining</span>}
+                          <span>⏱ {fmtDur(genElapsed)} {t('dub.elapsed')}</span>
+                          {genRemaining !== null && <span>~{fmtDur(genRemaining)} {t('dub.remaining')}</span>}
                         </div>
                         <div className="dub-gen-overlay__bar">
                           <Progress
@@ -1089,6 +1089,7 @@ function PrepOverlay({ stage, onAbort, large = false }) {
  * TranscribeOverlay — Whisper progress + ETA while transcribing.
  */
 function TranscribeOverlay({ elapsed, duration, onAbort }) {
+  const { t } = useTranslation();
   const est = duration > 0 ? Math.max(10, Math.ceil(duration / 60) * 3 + 8) : 0;
   const mm = Math.floor(elapsed / 60);
   const ss = String(elapsed % 60).padStart(2, '0');
@@ -1096,11 +1097,11 @@ function TranscribeOverlay({ elapsed, duration, onAbort }) {
     <div className="dub-trans-overlay">
       <div className="dub-trans-overlay__head">
         <Loader className="spinner" size={18} color="#d3869b" />
-        <span className="dub-trans-overlay__title">Transcribing with Whisper…</span>
+        <span className="dub-trans-overlay__title">{t('dub.transcribing')}</span>
       </div>
       <div className="dub-trans-overlay__stats">
-        <span>⏱ {mm}:{ss} elapsed</span>
-        {est > 0 && <span>~{Math.max(0, est - elapsed)}s remaining</span>}
+        <span>⏱ {mm}:{ss} {t('dub.elapsed')}</span>
+        {est > 0 && <span>~{Math.max(0, est - elapsed)}{t('dub.remaining')}</span>}
       </div>
       {duration > 0 && (
         <div className="dub-trans-overlay__bar">
