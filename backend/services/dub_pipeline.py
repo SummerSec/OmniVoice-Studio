@@ -308,7 +308,9 @@ def yt_download_sync(
         "quiet": True,
         "no_warnings": True,
         "restrictfilenames": True,
-        "socket_timeout": 30,
+        "socket_timeout": 120,
+        "retries": 3,
+        "fragment_retries": 3,
     }
     if fetch_subs:
         ydl_opts.update({
@@ -454,11 +456,13 @@ async def ingest_pipeline(
                 "-ar", "16000", "-ac", "1", audio_path, "-y",
             ])
             if p.returncode != 0:
-                raise Exception(stderr.decode(errors="replace")[:500])
+                msg = (stderr.decode(errors="replace") or f"ffmpeg returned exit code {p.returncode}").strip()[:500]
+                raise Exception(msg)
         except asyncio.CancelledError:
             raise
         except Exception as e:
-            yield prep_event("error", stage="extract", error=str(e)[:300])
+            msg = str(e) or f"{type(e).__name__} during audio extraction"
+            yield prep_event("error", stage="extract", error=msg[:300])
             return
 
         try:
