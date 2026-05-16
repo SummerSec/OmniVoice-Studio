@@ -3,6 +3,7 @@ import errno
 import logging
 import os
 import shutil
+import subprocess
 
 logger = logging.getLogger("omnivoice.api")
 
@@ -85,13 +86,66 @@ def find_ffprobe():
     return None
 
 
+async def _spawn_async(cmd, **kwargs):
+    """Try asyncio subprocess; fall back to thread-based subprocess on Windows
+    where ProactorEventLoop may not be available (e.g. under uvicorn --reload)."""
+    try:
+        return await asyncio.create_subprocess_exec(*cmd, **kwargs)
+    except NotImplementedError:
+        logger.debug("asyncio subprocess not supported, falling back to thread-based subprocess")
+        return await _spawn_thread_fallback(cmd, **kwargs)
+
+
+async def _spawn_thread_fallback(cmd, **kwargs):
+    """Run a subprocess synchronously in a thread via subprocess.Popen."""
+    stdout = kwargs.pop("stdout", asyncio.subprocess.PIPE)
+    stderr = kwargs.pop("stderr", asyncio.subprocess.PIPE)
+    stdin = kwargs.pop("stdin", None)
+    loop = asyncio.get_running_loop()
+
+    def _run():
+        return subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE if stdout == asyncio.subprocess.PIPE else stdout,
+            stderr=subprocess.PIPE if stderr == asyncio.subprocess.PIPE else stderr,
+            stdin=subprocess.PIPE if stdin == asyncio.subprocess.PIPE else stdin,
+        )
+
+    proc = await loop.run_in_executor(None, _run)
+    # Wrap the Popen process to match asyncio.subprocess.Process interface
+    class _AsyncCompatProc:
+        def __init__(self, popen):
+            self._popen = popen
+            self.returncode = popen.returncode
+            self.stdin = popen.stdin
+            self.stdout = popen.stdout
+            self.stderr = popen.stderr
+            self.pid = popen.pid
+
+        async def communicate(self, input=None):
+            out, err = await loop.run_in_executor(None, self._popen.communicate, input)
+            self.returncode = self._popen.returncode
+            return out, err
+
+        async def wait(self):
+            return await loop.run_in_executor(None, self._popen.wait)
+
+        def kill(self):
+            self._popen.kill()
+
+        def terminate(self):
+            self._popen.terminate()
+
+    return _AsyncCompatProc(proc)
+
+
 async def _spawn_with_retry(cmd, **kwargs):
     """Spawn a subprocess, retrying briefly on EAGAIN (posix_spawn resource pressure)."""
     delay = 0.1
     last_err = None
     for _ in range(5):
         try:
-            return await asyncio.create_subprocess_exec(*cmd, **kwargs)
+            return await _spawn_async(cmd, **kwargs)
         except BlockingIOError as e:
             last_err = e
             if e.errno != errno.EAGAIN:
@@ -106,8 +160,6 @@ async def _spawn_with_retry(cmd, **kwargs):
                 continue
             raise
         except Exception as e:
-            # Catch any unexpected error (e.g. NotImplementedError on Windows)
-            # and re-raise immediately rather than retrying blindly.
             raise
     raise last_err if last_err else RuntimeError("spawn failed")
 
