@@ -44,7 +44,15 @@ def find_ffmpeg():
     except Exception as e:
         logger.debug("imageio_ffmpeg unavailable: %s", e)
     # 3. Well-known system paths + PATH lookup
-    for path in ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "ffmpeg"]:
+    common = [
+        "/opt/homebrew/bin/ffmpeg",
+        "/usr/local/bin/ffmpeg",
+        "C:\\ffmpeg\\bin\\ffmpeg.exe",
+        "C:\\Program Files\\ffmpeg\\bin\\ffmpeg.exe",
+        "D:\\ffmpeg\\bin\\ffmpeg.exe",
+        "ffmpeg",
+    ]
+    for path in common:
         if shutil.which(path):
             return path
     logger.warning("ffmpeg not found in env, imageio, or system PATH")
