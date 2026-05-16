@@ -1,4 +1,5 @@
 import React, { Suspense, lazy, useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   PanelLeftOpen, PanelLeftClose, Film, Save, UploadCloud, Sparkles, Loader, Square,
   FileText, Play, DownloadIcon, Volume2, Link2,
@@ -30,6 +31,7 @@ const LazyFallback = () => (
 );
 
 export default function DubTab(props) {
+  const { t } = useTranslation();
   const {
     // Props that stay prop-threaded: non-serialisable state + handlers that
     // close over App.jsx's scope (uploads, SSE wiring, project CRUD, etc.).
@@ -227,15 +229,15 @@ export default function DubTab(props) {
                 {isSidebarCollapsed ? <PanelLeftOpen size={12} /> : <PanelLeftClose size={12} />}
               </Button>
               <Film className="label-icon" size={11} />
-              <span className="dub-head__filename">{dubVideoFile ? dubVideoFile.name : 'Video Dubbing Studio'}</span>
+              <span className="dub-head__filename">{dubVideoFile ? dubVideoFile.name : t('dub.video_dubbing_studio')}</span>
               {dubVideoFile && <span className="dub-head__meta">· {(dubVideoFile.size / 1024 / 1024).toFixed(1)} MB</span>}
               {activeProjectName && activeProjectName !== dubFilename && (
                 <span className="dub-head__project">— {activeProjectName}</span>
               )}
             </div>
             <div className="dub-head__actions">
-              <Button variant="subtle" size="sm" disabled leading={<Save size={9} />}>Save</Button>
-              <Button variant="ghost"  size="sm" disabled>Reset</Button>
+              <Button variant="subtle" size="sm" disabled leading={<Save size={9} />}>{t('dub.save')}</Button>
+              <Button variant="ghost"  size="sm" disabled>{t('dub.reset')}</Button>
             </div>
           </div>
 
@@ -360,7 +362,7 @@ export default function DubTab(props) {
                     <UploadCloud color="#d3869b" size={28} />
                   </div>
                   <div className="dub-idle-drop__lines">
-                    <div className="dub-idle-drop__title">Drop video or audio here</div>
+                    <div className="dub-idle-drop__title">{t('dub.drop_here')}</div>
                     <div className="dub-idle-drop__sub">MP4 · MOV · MKV · WEBM · MP3 · WAV · FLAC · M4A</div>
                   </div>
                   <div
@@ -370,7 +372,7 @@ export default function DubTab(props) {
                     <Link2 size={13} color="#a89984" />
                     <input
                       type="text"
-                      placeholder="…or paste YouTube / video URL"
+                      placeholder={t('dub.paste_url')}
                       value={ingestUrl}
                       onChange={e => setIngestUrl(e.target.value)}
                       onClick={e => { e.preventDefault(); e.stopPropagation(); }}
@@ -383,7 +385,7 @@ export default function DubTab(props) {
                       disabled={!ingestUrl.trim()}
                       className={`dub-ingest-row__cta ${ingestUrl.trim() ? 'is-ready' : ''}`}
                     >
-                      Ingest
+                      {t('dub.ingest')}
                     </button>
                   </div>
                   <label
@@ -397,7 +399,7 @@ export default function DubTab(props) {
                       onChange={e => setFetchYtSubs(e.target.checked)}
                       onClick={e => e.stopPropagation()}
                     />
-                    <span>Pull YouTube captions + auto-translations</span>
+                    <span>{t('dub.pull_captions')}</span>
                   </label>
                 </label>
               )}

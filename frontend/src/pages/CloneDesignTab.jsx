@@ -89,7 +89,7 @@ export default function CloneDesignTab(props) {
           {mode === 'design' && (
             <div className="preset-grid">
               {PRESETS.map(p => (
-                <button key={p.id} className="preset-btn" onClick={() => applyPreset(p)}>{p.name}</button>
+                <button key={p.id} className="preset-btn" onClick={() => applyPreset(p)}>{t(`clone.preset_${p.id}`, { defaultValue: p.name })}</button>
               ))}
             </div>
           )}
@@ -276,7 +276,7 @@ export default function CloneDesignTab(props) {
                       onClick={() => applyPersonality(p)}
                     >
                       <span className="personality-chip__icon">{p.icon}</span>
-                      {p.name}
+                      {t(`clone.personality_${p.id}`, { defaultValue: p.name })}
                     </button>
                   ))}
                 </div>
