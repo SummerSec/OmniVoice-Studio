@@ -123,6 +123,7 @@ def system_info():
     and a 500 here blocks the entire UI from rendering system details.
     """
     try:
+        _ffmpeg = find_ffmpeg()
         return {
             "data_dir": DATA_DIR,
             "outputs_dir": OUTPUTS_DIR,
@@ -135,6 +136,8 @@ def system_info():
             "device": get_best_device(),
             "python": sys.version.split()[0],
             "platform": sys.platform,
+            "ffmpeg_ok": bool(_ffmpeg),
+            "ffmpeg_path": _ffmpeg or "",
         }
     except Exception as e:
         logger.exception("system_info failed — returning safe defaults")
@@ -518,7 +521,7 @@ async def set_env_var(body: dict):
     The value is set on os.environ for the running process.
     For persistence across restarts, users should set it in their shell profile.
     """
-    ALLOWED_KEYS = {"HF_TOKEN", "TRANSLATE_API_KEY", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"}
+    ALLOWED_KEYS = {"HF_TOKEN", "TRANSLATE_API_KEY", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "FFMPEG_PATH", "FFPROBE_PATH"}
     key = body.get("key", "")
     value = body.get("value", "")
 

@@ -61,6 +61,33 @@ function GeneralTab() {
   const [proxyUrl, setProxyUrl] = useState('');
   const [proxySaved, setProxySaved] = useState(false);
   const [proxySaving, setProxySaving] = useState(false);
+  const { data: sysInfo } = useSystemInfo();
+  const [ffmpegPath, setFfmpegPath] = useState('');
+  const [ffmpegSaving, setFfmpegSaving] = useState(false);
+
+  const ffmpegOk = sysInfo?.ffmpeg_ok;
+  const ffmpegCurrent = sysInfo?.ffmpeg_path;
+
+  const saveFfmpeg = async () => {
+    const value = ffmpegPath.trim();
+    setFfmpegSaving(true);
+    try {
+      const { API } = await import('../api/client');
+      const r = await fetch(`${API}/system/set-env`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'FFMPEG_PATH', value }),
+      });
+      if (r.ok) {
+        toast.success(t('settings.ffmpeg_saved'));
+        setFfmpegPath('');
+      } else {
+        const d = await r.json().catch(() => ({}));
+        toast.error(d.detail || t('credentials.save_failed'));
+      }
+    } catch (e) { toast.error(`Save failed: ${e.message}`); }
+    finally { setFfmpegSaving(false); }
+  };
 
   const handleLocaleChange = (e) => {
     const id = e.target.value;
@@ -168,6 +195,33 @@ function GeneralTab() {
               {t('settings.proxy_clear')}
             </Button>
           )}
+        </div>
+      </div>
+
+      <hr className="settings-divider" />
+
+      <div className="settings-credential">
+        <div className="settings-credential__header">
+          <label className="settings-credential__label">{t('settings.ffmpeg')}</label>
+          <Badge tone={ffmpegOk ? 'success' : 'warn'} size="xs">
+            {ffmpegOk ? t('settings.ffmpeg_found') : t('settings.ffmpeg_missing')}
+          </Badge>
+        </div>
+        <p className="settings-credential__help">
+          {ffmpegCurrent ? `${t('settings.ffmpeg_current')}: ${ffmpegCurrent}` : t('settings.ffmpeg_desc')}
+        </p>
+        <div className="settings-credential__row">
+          <input
+            type="text"
+            className="settings-credential__input"
+            placeholder="D:\ffmpeg\bin\ffmpeg.exe"
+            value={ffmpegPath}
+            onChange={e => setFfmpegPath(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && saveFfmpeg()}
+          />
+          <Button size="sm" variant="subtle" onClick={saveFfmpeg} loading={ffmpegSaving} disabled={!ffmpegPath.trim()}>
+            {t('credentials.save')}
+          </Button>
         </div>
       </div>
     </section>
