@@ -286,7 +286,7 @@ export default function VoiceGallery() {
         <div className="content-header">
           <div className="content-title">
             {selectedCategory
-              ? categories.find(c => c.id === selectedCategory)?.name
+              ? t(`gallery.cat_${selectedCategory}`, { defaultValue: categories.find(c => c.id === selectedCategory)?.name || '' })
               : t('gallery.all_voices', { count: voices.length })}
           </div>
           <div className="view-toggle">
