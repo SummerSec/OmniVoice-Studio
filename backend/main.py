@@ -1,6 +1,14 @@
 import os
 import sys
 
+# Ensure `backend/` is on sys.path so bare imports like `from core.config`
+# work regardless of how uvicorn is invoked:
+#   - `uvicorn main:app`           (cwd = backend/)
+#   - `uvicorn backend.main:app`   (cwd = /app, Docker)
+_backend_dir = os.path.dirname(os.path.abspath(__file__))
+if _backend_dir not in sys.path:
+    sys.path.insert(0, _backend_dir)
+
 try:
     import dotenv
 
@@ -132,6 +140,9 @@ logging.getLogger("asyncio").addFilter(AsyncioExceptionFilter())
 
 # Silence HF Hub unauthenticated warnings unless specifically requested.
 logging.getLogger("huggingface_hub.utils._http").setLevel(logging.ERROR)
+# Silence httpx INFO — every HF Hub API call logs a line; the SSE stream
+# already surfaces download progress to the UI.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 if _json_logs:
     # Replace every existing handler's formatter with the JSON one.
     for _h in logging.getLogger().handlers:
@@ -170,6 +181,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from scalar_fastapi import get_scalar_api_reference
 import traceback
 
 _crash_log_lock = threading.Lock()
@@ -200,6 +212,9 @@ from api.routers import (
     events,
     capture,
     capture_ws,
+    openai_compat,
+    tts_stream,
+    marketplace,
 )
 from utils import hf_progress
 
@@ -207,6 +222,13 @@ from utils import hf_progress
 # that triggers `hf_hub_download` (transformers, mlx_whisper, etc.) must see
 # the patched class, not the original.
 hf_progress.install()
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 @asynccontextmanager
@@ -231,30 +253,38 @@ async def lifespan(app: FastAPI):
     worker_task = asyncio.create_task(task_manager.worker())
     # Warm the TTS model in the background so first /generate is instant.
     preload_task = asyncio.create_task(preload_model())
-    # Warm the capture ASR engine (MLX Whisper Turbo on Apple Silicon) so
-    # first dictation is instant — like Ghost Pepper and VoiceBox do.
-    # Without this, the first capture takes ~25s just to load the model.
-    async def _preload_capture_asr():
-        try:
-            from services.model_manager import _gpu_pool, _loading_detail
-            loop = asyncio.get_event_loop()
-            def _warm():
-                from services.asr_backend import get_capture_asr_backend
-                _loading_detail["sub_stage"] = "loading_asr"
-                _loading_detail["detail"] = "Warming up ASR engine…"
-                backend = get_capture_asr_backend()
-                logger.info("Capture ASR backend selected: %s", backend.id)
-                # Actually load model weights into memory — without this the
-                # first dictation still takes ~25s for weight loading.
-                if hasattr(backend, 'warmup'):
-                    _loading_detail["detail"] = f"Loading {backend.display_name}…"
-                    backend.warmup()
-                _loading_detail["sub_stage"] = "ready"
-                _loading_detail["detail"] = "ASR engine ready"
-            await loop.run_in_executor(_gpu_pool, _warm)
-        except Exception as e:
-            logger.warning("Capture ASR preload skipped: %s", e)
-    capture_preload_task = asyncio.create_task(_preload_capture_asr())
+    # Capture ASR is useful to keep warm, but it is another large model in
+    # unified memory on Apple Silicon. Keep launch lean by default; users who
+    # prefer instant dictation can opt in with OMNIVOICE_PRELOAD_CAPTURE_ASR=1.
+    if _env_flag("OMNIVOICE_PRELOAD_CAPTURE_ASR"):
+        async def _preload_capture_asr():
+            loading_detail = None
+            prev_loading_detail = None
+            try:
+                from services.model_manager import _gpu_pool, _loading_detail
+                loading_detail = _loading_detail
+                prev_loading_detail = dict(loading_detail)
+                loop = asyncio.get_running_loop()
+                def _warm():
+                    from services.asr_backend import get_capture_asr_backend
+                    loading_detail["sub_stage"] = "loading_asr"
+                    loading_detail["detail"] = "Warming up ASR engine…"
+                    backend = get_capture_asr_backend()
+                    logger.info("Capture ASR backend selected: %s", backend.id)
+                    if hasattr(backend, 'warmup'):
+                        loading_detail["detail"] = f"Loading {backend.display_name}…"
+                        backend.warmup()
+                    loading_detail["sub_stage"] = "ready"
+                    loading_detail["detail"] = "ASR engine ready"
+                await loop.run_in_executor(_gpu_pool, _warm)
+            except Exception as e:
+                if loading_detail is not None and loading_detail.get("sub_stage") == "loading_asr":
+                    loading_detail.clear()
+                    loading_detail.update(prev_loading_detail or {})
+                logger.warning("Capture ASR preload skipped: %s", e)
+        capture_preload_task = asyncio.create_task(_preload_capture_asr())
+    else:
+        logger.info("Capture ASR preload disabled; dictation ASR will load on first use.")
     yield
     # ── Graceful shutdown (SIGTERM from Tauri, Ctrl+C, etc.) ────────────
     logger.info("Shutdown: cleaning up…")
@@ -290,7 +320,22 @@ async def lifespan(app: FastAPI):
     logger.info("Shutdown: done.")
 
 
-app = FastAPI(title="OmniVoice Studio API", version="0.4.0", lifespan=lifespan)
+app = FastAPI(
+    title="OmniVoice Studio API",
+    version="0.4.0",
+    lifespan=lifespan,
+    docs_url=None,       # Disabled — replaced by Scalar at /docs
+    redoc_url=None,      # Disabled — Scalar covers this
+)
+
+
+@app.get("/docs", include_in_schema=False)
+async def scalar_docs():
+    """Interactive API documentation powered by Scalar."""
+    return get_scalar_api_reference(
+        openapi_url=app.openapi_url,
+        title=app.title,
+    )
 
 
 @app.exception_handler(Exception)
@@ -378,6 +423,9 @@ app.include_router(watermark.router)
 app.include_router(events.router)
 app.include_router(capture.router)
 app.include_router(capture_ws.router)
+app.include_router(openai_compat.router)
+app.include_router(tts_stream.router)
+app.include_router(marketplace.router)
 
 frontend_path = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
 if os.path.exists(frontend_path):
@@ -390,7 +438,52 @@ else:
 
 
 if __name__ == "__main__":
+    import argparse
+    import sys
+    import threading
+    import time
+    import urllib.request
     import uvicorn
+
+    parser = argparse.ArgumentParser(prog="omnivoice-backend")
+    parser.add_argument(
+        "--health-check",
+        action="store_true",
+        help="Boot the server, poll /health, exit 0 on success / 1 on timeout. "
+             "Used by the release-time installer smoke step in .github/workflows/release.yml.",
+    )
+    args, _unknown = parser.parse_known_args()
+
+    if args.health_check:
+        HEALTH_URL = "http://127.0.0.1:3900/health"
+        TIMEOUT_S = 60
+        INTERVAL_S = 5
+
+        def _serve():
+            # log_level="warning" silences the per-request access log spam
+            # so the smoke output stays readable in GH Actions.
+            uvicorn.run(app, host="127.0.0.1", port=3900, log_level="warning")
+
+        t = threading.Thread(target=_serve, daemon=True)
+        t.start()
+
+        elapsed = 0
+        while elapsed < TIMEOUT_S:
+            try:
+                with urllib.request.urlopen(HEALTH_URL, timeout=2) as resp:
+                    if resp.status == 200:
+                        print(f"OK — /health responded 200 after {elapsed}s", flush=True)
+                        sys.exit(0)
+            except Exception:
+                pass
+            time.sleep(INTERVAL_S)
+            elapsed += INTERVAL_S
+
+        print(
+            f"FAIL — /health did not respond 200 within {TIMEOUT_S}s",
+            file=sys.stderr, flush=True,
+        )
+        sys.exit(1)
 
     # Port 3900 picked to dodge common 8000 conflicts (Django/Rails/Jupyter).
     # Rust sidecar launcher in lib.rs::BACKEND_PORT must stay in sync.

@@ -30,14 +30,19 @@ def find_ffmpeg():
     """
     # 1. Env var injected by Tauri host
     env_path = os.environ.get("FFMPEG_PATH")
-    if env_path and os.path.isfile(env_path):
-        return env_path
+    if env_path:
+        resolved = shutil.which(env_path)
+        if resolved:
+            return resolved
     # 2. imageio-ffmpeg bundled static binary
     try:
         import imageio_ffmpeg
-        return imageio_ffmpeg.get_ffmpeg_exe()
+        candidate = imageio_ffmpeg.get_ffmpeg_exe()
+        if candidate and os.path.isfile(candidate):
+            return candidate
+        logger.debug("imageio_ffmpeg binary not found at %s", candidate)
     except Exception as e:
-        logger.warning(f"imageio_ffmpeg unavailable: {e}")
+        logger.debug("imageio_ffmpeg unavailable: %s", e)
     # 3. Well-known system paths + PATH lookup
     for path in ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "ffmpeg"]:
         if shutil.which(path):
@@ -55,8 +60,10 @@ def find_ffprobe():
       3. System ``PATH``.
     """
     env_path = os.environ.get("FFPROBE_PATH")
-    if env_path and os.path.isfile(env_path):
-        return env_path
+    if env_path:
+        resolved = shutil.which(env_path)
+        if resolved:
+            return resolved
     try:
         ffmpeg_path = find_ffmpeg()
         candidate = ffmpeg_path.replace("ffmpeg", "ffprobe")

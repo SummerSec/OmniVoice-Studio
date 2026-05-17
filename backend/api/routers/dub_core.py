@@ -15,7 +15,7 @@ from typing import Optional, List
 from fastapi import APIRouter, File, Form, UploadFile, HTTPException, Query
 from fastapi.responses import FileResponse, Response, StreamingResponse, JSONResponse
 
-from core.db import get_db, db_conn
+from core.db import db_conn
 from core.config import DATA_DIR, DUB_DIR, PREVIEW_DIR, VOICES_DIR
 from core.tasks import task_manager
 from core import event_bus
@@ -56,6 +56,83 @@ _kill_job_procs    = dub_pipeline.kill_job_procs
 _get_job           = dub_pipeline.get_job
 _save_job          = dub_pipeline.save_job
 
+@router.post("/dub/import-srt/{job_id}")
+async def dub_import_srt(job_id: str, file: UploadFile = File(...)):
+    """Replace `job["segments"]` with timestamps + text parsed from an SRT
+    file. Used as a fallback when Whisper mis-transcribes — the user can
+    point at their own pre-synced subtitles and skip ASR entirely.
+
+    Returns the new segment list plus counts of any cues we had to skip or
+    re-time (overlap shifts). The caller surfaces these so the user knows
+    if the import wasn't lossless.
+    """
+    job = _get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    try:
+        raw_bytes = await file.read()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not read uploaded file: {e}") from e
+    if not raw_bytes:
+        raise HTTPException(status_code=400, detail="Uploaded SRT file is empty.")
+    # Most SRT files are UTF-8 (with or without BOM); fall back to latin-1
+    # so legacy Windows-encoded subs don't blow up the import.
+    try:
+        text = raw_bytes.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text = raw_bytes.decode("latin-1", errors="replace")
+
+    from services.srt_parser import parse_srt
+    result = parse_srt(text)
+    if not result.segments:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "No valid cues found in the uploaded file. "
+                f"Skipped {result.skipped_cues} malformed cue(s). "
+                "Expected SubRip (.srt) format: index, then 'HH:MM:SS,ms --> HH:MM:SS,ms', then text, blank line."
+            ),
+        )
+
+    # Clamp cues that run past the source media's known duration. Pipeline
+    # downstream code assumes segment.end <= duration; without this, dub
+    # generation would try to time-stretch into negative slack.
+    duration = float(job.get("duration") or 0.0)
+    clamped = 0
+    if duration > 0:
+        kept = []
+        for seg in result.segments:
+            if seg["start"] >= duration:
+                continue
+            if seg["end"] > duration:
+                seg = {**seg, "end": round(duration, 3)}
+                clamped += 1
+            kept.append(seg)
+        # Re-id after clamp drops.
+        segments = [{**s, "id": i} for i, s in enumerate(kept)]
+    else:
+        segments = result.segments
+
+    job["segments"] = segments
+    # `source_lang` stays whatever the user (or the upload step) set; we
+    # don't try to language-detect off the cue text — that's noisy and the
+    # user usually knows what their .srt is.
+    _save_job(job_id, job)
+    logger.info(
+        "Imported %d cue(s) from .srt for job %s (skipped=%d, overlap_shifted=%d, clamped=%d)",
+        len(segments), job_id, result.skipped_cues, result.dropped_overlaps, clamped,
+    )
+    return {
+        "segments": segments,
+        "stats": {
+            "imported": len(segments),
+            "skipped_malformed": result.skipped_cues,
+            "dropped_overlap": result.dropped_overlaps,
+            "clamped_to_duration": clamped,
+        },
+    }
+
+
 @router.post("/dub/cleanup-segments/{job_id}")
 def dub_cleanup_segments(job_id: str):
     """Re-run merge/stitch passes on a job's existing segments to drop fragments."""
@@ -87,23 +164,16 @@ def dub_abort(job_id: str):
 
 @router.get("/dub/history")
 def list_dub_history():
-    conn = get_db()
-    try:
+    with db_conn() as conn:
         rows = conn.execute("SELECT * FROM dub_history ORDER BY created_at DESC LIMIT 30").fetchall()
-    finally:
-        conn.close()
     return [dict(r) for r in rows]
 
 @router.delete("/dub/history")
 def clear_dub_history():
     """Delete persisted dub rows and their on-disk dirs (scoped to known IDs)."""
-    conn = get_db()
-    try:
+    with db_conn() as conn:
         ids = [r["id"] for r in conn.execute("SELECT id FROM dub_history").fetchall()]
         conn.execute("DELETE FROM dub_history")
-        conn.commit()
-    finally:
-        conn.close()
     for jid in ids:
         safe = _safe_job_dir(jid)
         if safe and os.path.isdir(safe):
@@ -295,22 +365,23 @@ async def dub_transcribe_stream(job_id: str):
         preflight_error = "Job not found. It may have been cleaned up or was never created."
     else:
         _model = await get_model()
-        if _model._asr_pipe is None:
-            preflight_error = (
-                "ASR (speech recognition) isn't loaded yet. The model is still warming up or "
-                "Whisper failed to initialise — check Settings → Models for status, or restart "
-                "the server if 'Idle' persists."
-            )
+        asr_audio_target = job.get("vocals_path")
+        if not asr_audio_target or not os.path.exists(asr_audio_target):
+            asr_audio_target = job.get("audio_path")
+        if not asr_audio_target or not os.path.exists(asr_audio_target):
+            preflight_error = "No audio available for transcription."
         else:
-            asr_audio_target = job.get("vocals_path")
-            if not asr_audio_target or not os.path.exists(asr_audio_target):
-                asr_audio_target = job.get("audio_path")
-            if not asr_audio_target or not os.path.exists(asr_audio_target):
-                preflight_error = "No audio available for transcription."
-            else:
-                from services.asr_backend import get_active_asr_backend
+            from services.asr_backend import get_active_asr_backend
+            try:
                 _asr_backend = get_active_asr_backend(asr_pipe=getattr(_model, "_asr_pipe", None))
-                scene_cuts = job.get("scene_cuts") or []
+                if _asr_backend.id == "pytorch-whisper" and getattr(_model, "_asr_pipe", None) is None:
+                    preflight_error = (
+                        "No ASR backend is ready. Install WhisperX/faster-whisper/MLX Whisper "
+                        "or set OMNIVOICE_PRELOAD_TTS_ASR=1 before launch to use the PyTorch fallback."
+                    )
+            except Exception as e:
+                preflight_error = f"ASR backend initialization failed: {e}"
+            scene_cuts = job.get("scene_cuts") or []
 
     async def gen():
         if preflight_error:
@@ -318,7 +389,7 @@ async def dub_transcribe_stream(job_id: str):
             return
         import math
         import tempfile
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         def _load():
             audio_np, sr = sf.read(asr_audio_target, dtype="float32")
@@ -550,11 +621,6 @@ async def dub_transcribe(job_id: str):
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     _model = await get_model()
-    if _model._asr_pipe is None:
-        raise HTTPException(
-            status_code=503,
-            detail="ASR (speech recognition) isn't loaded yet. The model is still warming up or Whisper failed to initialise — check Settings → Models for status, or restart the server if 'Idle' persists.",
-        )
 
     def _transcribe():
         import re
@@ -575,22 +641,31 @@ async def dub_transcribe(job_id: str):
         from services.asr_backend import get_active_asr_backend
         _asr = get_active_asr_backend(asr_pipe=getattr(_model, "_asr_pipe", None))
         try:
-            logger.info("Transcribing full audio via %s ...", _asr.id)
-            result = _asr.transcribe(asr_audio_target, word_timestamps=True)
-            detected_lang = result.get("language")
-        except Exception as e:
-            logger.error("ASR backend %s failed: %s", _asr.id, e)
-            # Last-resort fallback — in-memory pytorch whisper via the TTS
-            # model's pipeline. Guaranteed present since the TTS model is
-            # already loaded to reach this code path.
-            audio_np, sr = sf.read(asr_audio_target, dtype="float32")
-            if audio_np.ndim > 1: audio_np = audio_np.mean(axis=1)
-            bs = 16 if torch.cuda.is_available() else 1
-            result = _model._asr_pipe(
-                {"array": audio_np, "sampling_rate": sr},
-                return_timestamps=True, chunk_length_s=15, batch_size=bs,
-            )
-            detected_lang = (result.get("language") if isinstance(result, dict) else None)
+            try:
+                logger.info("Transcribing full audio via %s ...", _asr.id)
+                result = _asr.transcribe(asr_audio_target, word_timestamps=True)
+                detected_lang = result.get("language")
+            except Exception as e:
+                logger.error("ASR backend %s failed: %s", _asr.id, e)
+                if getattr(_model, "_asr_pipe", None) is None:
+                    raise RuntimeError(
+                        f"ASR backend {_asr.id} failed and PyTorch Whisper fallback is not preloaded: {e}"
+                    ) from e
+                # Last-resort fallback — in-memory pytorch whisper via the TTS
+                # model's pipeline when explicitly preloaded.
+                audio_np, sr = sf.read(asr_audio_target, dtype="float32")
+                if audio_np.ndim > 1: audio_np = audio_np.mean(axis=1)
+                bs = 16 if torch.cuda.is_available() else 1
+                result = _model._asr_pipe(
+                    {"array": audio_np, "sampling_rate": sr},
+                    return_timestamps=True, chunk_length_s=15, batch_size=bs,
+                )
+                detected_lang = (result.get("language") if isinstance(result, dict) else None)
+        finally:
+            try:
+                _asr.unload()
+            except Exception as e:
+                logger.warning("Failed to unload ASR backend: %s", e)
 
         job["source_lang"] = (detected_lang or "en").split("_")[0][:2].lower()
 
@@ -619,18 +694,13 @@ async def dub_transcribe(job_id: str):
             s.setdefault("text_original", s.get("text", ""))
         job["full_transcript"] = " ".join(s["text"] for s in segments)
 
-        try:
-            _asr.unload()
-        except Exception as e:
-            logger.warning("Failed to unload ASR backend: %s", e)
-
         if torch.backends.mps.is_available():
             torch.mps.empty_cache()
 
         return segments
 
     try:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         try:
             segments_result = await loop.run_in_executor(_gpu_pool, _transcribe)
         except asyncio.CancelledError:

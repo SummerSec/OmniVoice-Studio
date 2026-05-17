@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
+import { isTauri as _isTauri } from '../utils/media';
 import {
   flexRender,
   getCoreRowModel,
@@ -887,10 +888,17 @@ export function EnginesTab() {
                     </span>
                     <span className="models-row__repo">
                       <code>{b.id}</code>
-                      {!b.available && b.reason && <span className="models-row__note"> · {b.reason}</span>}
+                      {!b.available && b.reason && (
+                        <span className="models-row__note" title={b.reason}> · {b.reason}</span>
+                      )}
                     </span>
+                    {b.install_hint && (
+                      <span className="models-row__hint" title={b.install_hint}>
+                        <Info size={11} /> {b.install_hint}
+                      </span>
+                    )}
                   </div>
-                  <div className="models-row__cell" style={{ width: 120, display: 'flex', justifyContent: 'center' }}>
+                  <div className="models-row__cell" style={{ width: 120, display: 'flex', justifyContent: 'center' }} title={b.available ? 'Installed and ready' : (b.reason || 'Not installed')}>
                     {b.available
                       ? <Badge tone="success" size="xs">ready</Badge>
                       : <Badge tone="warn" size="xs">unavailable</Badge>}
@@ -917,7 +925,7 @@ export function EnginesTab() {
 }
 
 
-const isTauri = () => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+const isTauri = () => _isTauri;
 
 // Tauri v2's webview disables native window.confirm/alert — they return
 // false silently, making Delete/Reinstall buttons appear dead. Route through

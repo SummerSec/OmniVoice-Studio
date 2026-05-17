@@ -41,7 +41,7 @@ export default function DubTab(props) {
     segmentPreviewLoading,
     selectedSegIds,
     setDubVideoFile, setDubLocalBlobUrl,
-    handleDubAbort, handleDubUpload, handleDubIngestUrl, handleDubRetryTranscribe, handleDubStop, handleDubGenerate,
+    handleDubAbort, handleDubUpload, handleDubIngestUrl, handleDubRetryTranscribe, handleDubStop, handleDubGenerate, handleDubImportSrt,
     handleDubDownload, handleDubAudioDownload, handleAudioExport,
     speakerClones = {},
     handleSegmentPreview, onDirectSegment, handleTranslateAll, handleCleanupSegments,
@@ -258,6 +258,27 @@ export default function DubTab(props) {
                   Retry transcription
                 </Button>
               )}
+              {handleDubImportSrt && (
+                <label
+                  htmlFor="srt-import-banner-input"
+                  className="dub-idle-upload-label"
+                  title="Upload your own .srt to bypass ASR"
+                  style={{ cursor: 'pointer' }}
+                >
+                  <FileText size={11} /> Import .srt instead
+                  <input
+                    id="srt-import-banner-input"
+                    type="file"
+                    accept=".srt,text/srt,text/plain"
+                    hidden
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) handleDubImportSrt(f);
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+              )}
             </div>
           )}
 
@@ -289,6 +310,27 @@ export default function DubTab(props) {
                     <label htmlFor="video-upload" className="dub-idle-upload-label">
                       <Film size={13} /> Change file
                     </label>
+                    {dubJobId && handleDubImportSrt && (
+                      <label
+                        htmlFor="srt-import-input"
+                        className="dub-idle-upload-label"
+                        title="Use your own .srt subtitles instead of running Whisper transcription"
+                        style={{ cursor: 'pointer' }}
+                      >
+                        <FileText size={13} /> Import .srt
+                        <input
+                          id="srt-import-input"
+                          type="file"
+                          accept=".srt,text/srt,text/plain"
+                          hidden
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            if (f) handleDubImportSrt(f);
+                            e.target.value = '';
+                          }}
+                        />
+                      </label>
+                    )}
                     <button className="btn-primary dub-change-row__cta"
                       onClick={handleDubUpload}
                       disabled={dubStep === 'uploading' || dubStep === 'transcribing'}>
@@ -806,6 +848,14 @@ export default function DubTab(props) {
                     value="" onChange={(e) => { const v = e.target.value; if (v === '__clear__') bulkApplyToSelected({ profile_id: '' }); else if (v) bulkApplyToSelected({ profile_id: v }); }}>
                     <option value="">Set voice…</option>
                     <option value="__clear__">⊘ Default</option>
+                    {speakerClones && Object.keys(speakerClones).length > 0 && (
+                      <optgroup label="From Video">
+                        {Object.keys(speakerClones).map(spk => {
+                          const autoId = `auto:${(spk || '').toLowerCase().replace(/\s+/g, '_')}`;
+                          return <option key={autoId} value={autoId}>🎤 {spk}</option>;
+                        })}
+                      </optgroup>
+                    )}
                     {profiles.filter(p => !p.instruct).length > 0 && (
                       <optgroup label="Clone">
                         {profiles.filter(p => !p.instruct).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -842,6 +892,7 @@ export default function DubTab(props) {
                 <DubSegmentTable
                   segments={dubSegments}
                   profiles={profiles}
+                  speakerClones={speakerClones}
                   dubStep={dubStep}
                   dubProgress={dubProgress}
                   previewLoadingId={segmentPreviewLoading}

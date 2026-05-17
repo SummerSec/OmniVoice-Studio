@@ -49,6 +49,7 @@ _loading_detail: dict = {
     "sub_stage": None,   # importing | loading_weights | loading_asr | compiling | ready | error
     "detail": "",        # human-readable description
     "error": None,       # error message string if failed
+    "progress": None,    # 0-100 percentage (None = indeterminate)
 }
 
 # ── ROCm GFX version overrides ───────────────────────────────────────
@@ -160,15 +161,50 @@ def get_best_device():
 
     return "cpu"
 
-def _set_loading(sub_stage: str, detail: str = "", error: str | None = None):
+def _set_loading(sub_stage: str, detail: str = "", error: str | None = None, progress: float | None = None):
     """Update the loading detail dict atomically."""
     _loading_detail["sub_stage"] = sub_stage
     _loading_detail["detail"] = detail
     _loading_detail["error"] = error
+    _loading_detail["progress"] = progress
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def should_preload_tts_asr() -> bool:
+    """Whether OmniVoice.from_pretrained should attach PyTorch Whisper.
+
+    The default is intentionally false. On Apple Silicon, eager TTS + ASR
+    loading can overcommit unified memory and leave desktop startup stuck
+    at the model-loading stage. ASR backends still load on demand.
+    """
+    return _env_flag("OMNIVOICE_PRELOAD_TTS_ASR")
 
 
 def _load_model_sync():
     global model
+    from utils.hf_progress import register_listener, unregister_listener
+
+    # Register a listener that updates _loading_detail with real-time
+    # download/weight-loading percentages from hf_hub_download tqdm bars.
+    def _on_hf_progress(ev):
+        pct = ev.get("pct", 0.0)
+        filename = ev.get("filename", "")
+        phase = ev.get("phase", "")
+        if pct > 0:
+            pct_int = min(round(pct * 100), 99)  # cap at 99 until fully done
+            detail = _loading_detail.get("detail", "")
+            # Append percentage to the existing detail label
+            base = detail.split(" —")[0].split(" (")[0]  # strip old suffix
+            _loading_detail["progress"] = pct_int
+            _loading_detail["detail"] = f"{base} — {pct_int}%"
+
+    lid = register_listener(_on_hf_progress)
     try:
         _set_loading("importing", "Importing PyTorch & OmniVoice runtime…")
         logger.info("Importing PyTorch & OmniVoice runtime…")
@@ -179,8 +215,13 @@ def _load_model_sync():
         checkpoint = os.environ.get("OMNIVOICE_MODEL", "k2-fsa/OmniVoice")
         _set_loading("loading_weights", f"Loading TTS weights on {device}…")
         logger.info("Loading OmniVoice model on device: %s", device)
+        preload_asr = should_preload_tts_asr()
+        if preload_asr:
+            logger.info("Preloading PyTorch Whisper with TTS model.")
+        else:
+            logger.info("Skipping PyTorch Whisper preload; ASR will load on demand.")
         _model = OmniVoice.from_pretrained(
-            checkpoint, device_map=device, dtype=torch.float16, load_asr=True,
+            checkpoint, device_map=device, dtype=torch.float16, load_asr=preload_asr,
         )
 
         try:
@@ -191,7 +232,7 @@ def _load_model_sync():
         except Exception as e:
             logger.info("torch.compile skipped: %s", e)
 
-        _set_loading("ready", "Model ready")
+        _set_loading("ready", "Model ready", progress=100)
         logger.info("OmniVoice model loaded successfully.")
         return _model
     except Exception as exc:
@@ -199,6 +240,8 @@ def _load_model_sync():
         _set_loading("error", "Model loading failed", error=err_msg)
         logger.error("Model loading failed: %s", err_msg)
         raise
+    finally:
+        unregister_listener(lid)
 
 async def get_model():
     global model, _last_used
@@ -264,6 +307,9 @@ def get_model_status():
     if sub:
         result["sub_stage"] = sub
         result["detail"] = _loading_detail.get("detail", "")
+        progress = _loading_detail.get("progress")
+        if progress is not None:
+            result["progress"] = progress
         err = _loading_detail.get("error")
         if err:
             result["error"] = err
@@ -357,7 +403,16 @@ _diar_pipeline = None
 
 def get_diarization_pipeline():
     global _diar_pipeline
+    # AUTH cascade prelude: env var > canonical ~/.cache/huggingface/token
+    # (written by `huggingface-cli login` or app save). Phase 1 token_resolver
+    # adds the SQLite app-store layer on top.
     hf_token = os.environ.get("HF_TOKEN")
+    if not hf_token:
+        try:
+            from huggingface_hub import get_token
+            hf_token = get_token()
+        except Exception:
+            hf_token = None
     if not hf_token:
         return None
     if _diar_pipeline is not None:
