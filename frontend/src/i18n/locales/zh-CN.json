@@ -201,7 +201,15 @@
     "get_token": "获取令牌 →",
     "saved_session": "{{key}} 已为此会话保存",
     "save_failed": "保存失败",
-    "save_error": "保存失败：{{message}}"
+    "save_error": "保存失败：{{message}}",
+    "deepl_key": "DeepL API 密钥",
+    "deepl_help": "用于 DeepL 翻译引擎。在 deepl.com/pro-api 获取。",
+    "microsoft_key": "Microsoft Translator 密钥",
+    "microsoft_help": "用于 Microsoft Translator 引擎。从 Azure 门户获取。",
+    "llm_base_url": "LLM 基础地址",
+    "llm_base_url_help": "用于精译质量或 LLM 引擎。任何 OpenAI 兼容的端点（OpenAI、Ollama、LM Studio 等）。",
+    "llm_model": "LLM 模型名称",
+    "llm_model_help": "LLM 引擎使用的模型名称（如 gpt-4o、deepseek-chat、qwen2.5）。"
   },
   "engines": {
     "review_on": "审阅",

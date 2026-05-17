@@ -1483,6 +1483,34 @@ const CREDENTIAL_DEFS = [
     helpKey: 'credentials.translate_help',
     link: null,
   },
+  {
+    key: 'DEEPL_API_KEY',
+    labelKey: 'credentials.deepl_key',
+    placeholderKey: 'DeepL API key',
+    helpKey: 'credentials.deepl_help',
+    link: 'https://www.deepl.com/pro-api',
+  },
+  {
+    key: 'MICROSOFT_API_KEY',
+    labelKey: 'credentials.microsoft_key',
+    placeholderKey: 'Azure Translator key',
+    helpKey: 'credentials.microsoft_help',
+    link: 'https://portal.azure.com/#view/Microsoft_Azure_ProjectOxford/CognitiveServicesHub/~/Translator',
+  },
+  {
+    key: 'TRANSLATE_BASE_URL',
+    labelKey: 'credentials.llm_base_url',
+    placeholderKey: 'https://api.openai.com/v1',
+    helpKey: 'credentials.llm_base_url_help',
+    link: null,
+  },
+  {
+    key: 'TRANSLATE_MODEL',
+    labelKey: 'credentials.llm_model',
+    placeholderKey: 'gpt-4o',
+    helpKey: 'credentials.llm_model_help',
+    link: null,
+  },
 ];
 
 // Convert a KeyboardEvent into a tauri-plugin-global-shortcut accelerator

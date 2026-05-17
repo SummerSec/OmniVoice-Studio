@@ -201,7 +201,15 @@
     "get_token": "Get token →",
     "saved_session": "{{key}} saved for this session",
     "save_failed": "Failed to save",
-    "save_error": "Save failed: {{message}}"
+    "save_error": "Save failed: {{message}}",
+    "deepl_key": "DeepL API Key",
+    "deepl_help": "For DeepL translation engine. Get your key at deepl.com/pro-api.",
+    "microsoft_key": "Microsoft Translator Key",
+    "microsoft_help": "For Microsoft Translator engine. Get your key from Azure Portal.",
+    "llm_base_url": "LLM Base URL",
+    "llm_base_url_help": "For Cinematic quality or LLM engine. Any OpenAI-compatible endpoint (OpenAI, Ollama, LM Studio, etc.).",
+    "llm_model": "LLM Model",
+    "llm_model_help": "Model name to use with the LLM engine (e.g. gpt-4o, deepseek-chat, qwen2.5)."
   },
   "engines": {
     "review_on": "Review",
