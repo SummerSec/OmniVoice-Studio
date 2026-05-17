@@ -193,7 +193,7 @@
     "desc": "API keys and tokens are set <1>for this session only</1>. For persistence across restarts, set them as environment variables in your shell profile.",
     "hf_token": "HuggingFace Token",
     "hf_help": "Required for speaker diarization and faster model downloads. Get yours at huggingface.co/settings/tokens.",
-    "translate_key": "Translation API Key",
+    "translate_key": "LLM API Key",
     "translate_help": "Optional — for DeepL, OpenAI, or paid translation providers. Not needed for Google Translate (free tier).",
     "save": "Save",
     "saved": "✓ Set",
@@ -204,12 +204,20 @@
     "save_error": "Save failed: {{message}}",
     "deepl_key": "DeepL API Key",
     "deepl_help": "For DeepL translation engine. Get your key at deepl.com/pro-api.",
+    "deepl_base_url": "DeepL Base URL",
+    "deepl_base_url_help": "Custom DeepL API endpoint (default: https://api.deepl.com/v2). Change for proxy/self-hosted.",
     "microsoft_key": "Microsoft Translator Key",
     "microsoft_help": "For Microsoft Translator engine. Get your key from Azure Portal.",
+    "microsoft_base_url": "Microsoft Translator Base URL",
+    "microsoft_base_url_help": "Custom Azure Translator endpoint (default: https://api.cognitive.microsofttranslator.com).",
     "llm_base_url": "LLM Base URL",
     "llm_base_url_help": "For Cinematic quality or LLM engine. Any OpenAI-compatible endpoint (OpenAI, Ollama, LM Studio, etc.).",
     "llm_model": "LLM Model",
-    "llm_model_help": "Model name to use with the LLM engine (e.g. gpt-4o, deepseek-chat, qwen2.5)."
+    "llm_model_help": "Model name to use with the LLM engine (e.g. gpt-4o, deepseek-chat, qwen2.5).",
+    "group_huggingface": "HuggingFace",
+    "group_translate": "Translation (LLM / Cinematic)",
+    "group_deepl": "DeepL Custom Endpoint",
+    "group_microsoft": "Microsoft Translator Custom Endpoint"
   },
   "engines": {
     "review_on": "Review",
@@ -440,7 +448,8 @@
     "add_term": "Add term",
     "hint": "Glossary is injected into every Cinematic translate prompt. Manual entries take precedence.",
     "auto_badge": "auto",
-    "manual_badge": "manual"
+    "manual_badge": "manual",
+    "close": "Collapse glossary"
   },
   "segment": {
     "time": "Time",

@@ -18,7 +18,8 @@ import { openExternal } from '../api/external';
 import { Trans, useTranslation } from 'react-i18next';
 import { systemLogs, systemLogsTauri, clearSystemLogs, clearTauriLogs } from '../api/system';
 import i18n from '../i18n';
-import { useSysinfo, useModelStatus, useSystemInfo } from '../api/hooks';
+import { useSysinfo, useModelStatus, useSystemInfo, queryKeys } from '../api/hooks';
+import { useQueryClient } from '@tanstack/react-query';
 import { listEngines, selectEngine } from '../api/engines';
 import { setupDownloadStreamUrl } from '../api/setup';
 import { getFrontendLogs, clearFrontendLogs } from '../utils/consoleBuffer';
@@ -58,15 +59,56 @@ function GeneralTab() {
   const setLocale = useAppStore(s => s.setLocale);
   const theme = useAppStore(s => s.theme);
   const setTheme = useAppStore(s => s.setTheme);
+  const { data: sysInfo } = useSystemInfo();
   const [proxyUrl, setProxyUrl] = useState('');
   const [proxySaved, setProxySaved] = useState(false);
   const [proxySaving, setProxySaving] = useState(false);
-  const { data: sysInfo } = useSystemInfo();
   const [ffmpegPath, setFfmpegPath] = useState('');
   const [ffmpegSaving, setFfmpegSaving] = useState(false);
+  // LLM settings for cinematic translation / auto-extract
+  const [llmBaseUrl, setLlmBaseUrl] = useState('');
+  const [llmApiKey, setLlmApiKey] = useState('');
+  const [llmModel, setLlmModel] = useState('');
+  const [llmSaved, setLlmSaved] = useState(false);
+  const [llmSaving, setLlmSaving] = useState(false);
+  const queryClient = useQueryClient();
+
+  // Sync inputs with persisted values from backend on load
+  useEffect(() => {
+    if (!proxyUrl && !proxySaved) setProxyUrl(sysInfo?.proxy_url || '');
+  }, [sysInfo?.proxy_url]);
+
+  useEffect(() => {
+    if (!ffmpegPath) setFfmpegPath(sysInfo?.ffmpeg_path || '');
+  }, [sysInfo?.ffmpeg_path]);
 
   const ffmpegOk = sysInfo?.ffmpeg_ok;
   const ffmpegCurrent = sysInfo?.ffmpeg_path;
+
+  const saveLlm = async () => {
+    const url = llmBaseUrl.trim();
+    const key = llmApiKey.trim();
+    const model = llmModel.trim();
+    if (!url || !key) { toast.error('请填写 Base URL 和 API Key'); return; }
+    setLlmSaving(true);
+    try {
+      const { API } = await import('../api/client');
+      const setEnv = (k, v) => fetch(`${API}/system/set-env`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: k, value: v }),
+      });
+      await Promise.all([
+        setEnv('TRANSLATE_BASE_URL', url),
+        setEnv('TRANSLATE_API_KEY', key),
+        model ? setEnv('TRANSLATE_MODEL', model) : Promise.resolve(),
+      ]);
+      toast.success('LLM 配置已保存');
+      setLlmSaved(true);
+      queryClient.invalidateQueries({ queryKey: queryKeys.systemInfo });
+    } catch (e) { toast.error(`保存失败: ${e.message}`); }
+    finally { setLlmSaving(false); }
+  };
 
   const saveFfmpeg = async () => {
     const value = ffmpegPath.trim();
@@ -81,6 +123,7 @@ function GeneralTab() {
       if (r.ok) {
         toast.success(t('settings.ffmpeg_saved'));
         setFfmpegPath('');
+        queryClient.invalidateQueries({ queryKey: queryKeys.systemInfo });
       } else {
         const d = await r.json().catch(() => ({}));
         toast.error(d.detail || t('credentials.save_failed'));
@@ -110,9 +153,13 @@ function GeneralTab() {
         await Promise.all([
           setEnv('HTTPS_PROXY', value),
           setEnv('ALL_PROXY', value),
+          setEnv('http_proxy', value),
+          setEnv('https_proxy', value),
+          setEnv('all_proxy', value),
         ]);
         toast.success(t('settings.proxy_saved'));
         setProxySaved(true);
+        queryClient.invalidateQueries({ queryKey: queryKeys.systemInfo });
       } else {
         const d = await r.json().catch(() => ({}));
         toast.error(d.detail || t('settings.proxy_save_failed'));
@@ -134,10 +181,14 @@ function GeneralTab() {
         setEnv('HTTP_PROXY', ''),
         setEnv('HTTPS_PROXY', ''),
         setEnv('ALL_PROXY', ''),
+        setEnv('http_proxy', ''),
+        setEnv('https_proxy', ''),
+        setEnv('all_proxy', ''),
       ]);
       setProxyUrl('');
       setProxySaved(false);
       toast.success(t('settings.proxy_cleared'));
+      queryClient.invalidateQueries({ queryKey: queryKeys.systemInfo });
     } catch (e) { toast.error(`Clear failed: ${e.message}`); }
     finally { setProxySaving(false); }
   };
@@ -224,6 +275,7 @@ function GeneralTab() {
           </Button>
         </div>
       </div>
+
     </section>
   );
 }
@@ -1468,48 +1520,42 @@ export default function Settings() {
 
 // ── Credentials Tab ───────────────────────────────────────────────────────
 
-const CREDENTIAL_DEFS = [
+const CREDENTIAL_GROUPS = [
   {
-    key: 'HF_TOKEN',
-    labelKey: 'credentials.hf_token',
-    placeholderKey: 'hf_xxxxxxxxxxxx',
-    helpKey: 'credentials.hf_help',
-    link: 'https://huggingface.co/settings/tokens',
+    labelKey: 'credentials.group_huggingface',
+    fields: [
+      { key: 'HF_TOKEN', labelKey: 'credentials.hf_token', placeholderKey: 'hf_xxxxxxxxxxxx',
+        helpKey: 'credentials.hf_help', link: 'https://huggingface.co/settings/tokens', isPassword: true },
+    ],
   },
   {
-    key: 'TRANSLATE_API_KEY',
-    labelKey: 'credentials.translate_key',
-    placeholderKey: 'API key',
-    helpKey: 'credentials.translate_help',
-    link: null,
+    labelKey: 'credentials.group_translate',
+    fields: [
+      { key: 'TRANSLATE_API_KEY', labelKey: 'credentials.translate_key', placeholderKey: 'API key',
+        helpKey: 'credentials.translate_help', isPassword: true },
+      { key: 'TRANSLATE_BASE_URL', labelKey: 'credentials.llm_base_url', placeholderKey: 'https://api.openai.com/v1',
+        helpKey: 'credentials.llm_base_url_help' },
+      { key: 'TRANSLATE_MODEL', labelKey: 'credentials.llm_model', placeholderKey: 'gpt-4o',
+        helpKey: 'credentials.llm_model_help' },
+    ],
   },
   {
-    key: 'DEEPL_API_KEY',
-    labelKey: 'credentials.deepl_key',
-    placeholderKey: 'DeepL API key',
-    helpKey: 'credentials.deepl_help',
-    link: 'https://www.deepl.com/pro-api',
+    labelKey: 'credentials.group_deepl',
+    fields: [
+      { key: 'DEEPL_API_KEY', labelKey: 'credentials.deepl_key', placeholderKey: 'DeepL API key',
+        isPassword: true },
+      { key: 'DEEPL_BASE_URL', labelKey: 'credentials.deepl_base_url', placeholderKey: 'https://api.deepl.com/v2',
+        helpKey: 'credentials.deepl_base_url_help' },
+    ],
   },
   {
-    key: 'MICROSOFT_API_KEY',
-    labelKey: 'credentials.microsoft_key',
-    placeholderKey: 'Azure Translator key',
-    helpKey: 'credentials.microsoft_help',
-    link: 'https://portal.azure.com/#view/Microsoft_Azure_ProjectOxford/CognitiveServicesHub/~/Translator',
-  },
-  {
-    key: 'TRANSLATE_BASE_URL',
-    labelKey: 'credentials.llm_base_url',
-    placeholderKey: 'https://api.openai.com/v1',
-    helpKey: 'credentials.llm_base_url_help',
-    link: null,
-  },
-  {
-    key: 'TRANSLATE_MODEL',
-    labelKey: 'credentials.llm_model',
-    placeholderKey: 'gpt-4o',
-    helpKey: 'credentials.llm_model_help',
-    link: null,
+    labelKey: 'credentials.group_microsoft',
+    fields: [
+      { key: 'MICROSOFT_API_KEY', labelKey: 'credentials.microsoft_key', placeholderKey: 'Microsoft API key',
+        isPassword: true },
+      { key: 'MICROSOFT_BASE_URL', labelKey: 'credentials.microsoft_base_url', placeholderKey: 'https://api.cognitive.microsofttranslator.com',
+        helpKey: 'credentials.microsoft_base_url_help' },
+    ],
   },
 ];
 
@@ -1713,42 +1759,48 @@ function CredentialsTab({ info }) {
       <p className="settings-prose">
         <Trans i18nKey="credentials.desc" components={{ 1: <strong /> }} />
       </p>
-      {CREDENTIAL_DEFS.map(field => (
-        <div key={field.key} className="settings-credential">
-          <div className="settings-credential__header">
-            <label className="settings-credential__label">{t(field.labelKey)}</label>
-            {field.key === 'HF_TOKEN' && (
-              <Badge tone={info?.has_hf_token || saved.HF_TOKEN ? 'success' : 'warn'} size="xs">
-                {info?.has_hf_token || saved.HF_TOKEN ? t('credentials.saved') : t('credentials.not_set')}
-              </Badge>
-            )}
-          </div>
-          <div className="settings-credential__row">
-            <input
-              type="password"
-              className="settings-credential__input"
-              placeholder={field.placeholderKey}
-              value={values[field.key] || ''}
-              onChange={e => setValues(prev => ({ ...prev, [field.key]: e.target.value }))}
-              onKeyDown={e => e.key === 'Enter' && save(field.key)}
-            />
-            <Button
-              size="sm"
-              variant="subtle"
-              loading={saving === field.key}
-              onClick={() => save(field.key)}
-              disabled={!(values[field.key] || '').trim()}
-            >
-              {t('credentials.save')}
-            </Button>
-          </div>
-          <p className="settings-credential__help">
-            {t(field.helpKey)}
-            {field.link && (
-              <> <a href="#" onClick={e => { e.preventDefault(); openExternal(field.link); }}>{t('credentials.get_token')}</a></>
-            )}
-          </p>
-        </div>
+      {CREDENTIAL_GROUPS.map((group, gi) => (
+        <React.Fragment key={gi}>
+          {gi > 0 && <hr className="settings-divider" />}
+          {group.fields.length > 1 && <h3 className="settings-section__subtitle">{t(group.labelKey)}</h3>}
+          {group.fields.map(field => (
+            <div key={field.key} className="settings-credential">
+              <div className="settings-credential__header">
+                <label className="settings-credential__label">{t(field.labelKey)}</label>
+                {field.key === 'HF_TOKEN' && (
+                  <Badge tone={info?.has_hf_token || saved.HF_TOKEN ? 'success' : 'warn'} size="xs">
+                    {info?.has_hf_token || saved.HF_TOKEN ? t('credentials.saved') : t('credentials.not_set')}
+                  </Badge>
+                )}
+              </div>
+              <div className="settings-credential__row">
+                <input
+                  type={field.isPassword ? 'password' : 'text'}
+                  className="settings-credential__input"
+                  placeholder={field.placeholderKey}
+                  value={values[field.key] || ''}
+                  onChange={e => setValues(prev => ({ ...prev, [field.key]: e.target.value }))}
+                  onKeyDown={e => e.key === 'Enter' && save(field.key)}
+                />
+                <Button
+                  size="sm"
+                  variant="subtle"
+                  loading={saving === field.key}
+                  onClick={() => save(field.key)}
+                  disabled={!(values[field.key] || '').trim()}
+                >
+                  {t('credentials.save')}
+                </Button>
+              </div>
+              <p className="settings-credential__help">
+                {t(field.helpKey)}
+                {field.link && (
+                  <> <a href="#" onClick={e => { e.preventDefault(); openExternal(field.link); }}>{t('credentials.get_token')}</a></>
+                )}
+              </p>
+            </div>
+          ))}
+        </React.Fragment>
       ))}
     </section>
   );

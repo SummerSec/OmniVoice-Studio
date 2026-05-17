@@ -98,6 +98,23 @@ import logging
 from logging.handlers import RotatingFileHandler
 import shutil
 
+# ── Restore persisted env vars from prefs.json ────────────────────────────
+# Settings saved via Settings UI (proxy, FFMPEG_PATH, HF_TOKEN, etc.) are
+# written to prefs.json so they survive backend restarts. Read them back
+# here — before any user code reads os.environ — so the values are available
+# from startup.
+_PERSISTED_ENV_PREFIX = "env."
+try:
+    from core.prefs import _load as _load_all_prefs
+    _prefs = _load_all_prefs()
+    for _k, _v in _prefs.items():
+        if _k.startswith(_PERSISTED_ENV_PREFIX) and _v:
+            _env_key = _k[len(_PERSISTED_ENV_PREFIX):]
+            # Do not override an explicitly-set env var (shell > prefs)
+            os.environ.setdefault(_env_key, str(_v))
+except Exception:
+    pass  # prefs.json missing or broken — fine on first run
+
 warnings.filterwarnings("ignore", category=UserWarning)
 torchaudio.set_audio_backend("soundfile")
 

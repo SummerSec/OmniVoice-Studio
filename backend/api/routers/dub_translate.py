@@ -374,18 +374,30 @@ async def dub_translate(req: TranslateRequest):
 
         src_arg = TRANSLATE_CODES.get(src_lang, src_lang) or "auto"
 
+        _proxies = {"http": None, "https": None}
+        _deepl_key = os.environ.get("DEEPL_API_KEY") or api_key
+        _msft_key = os.environ.get("MICROSOFT_API_KEY") or api_key
+
         def _build_translator(src, tgt):
             if provider == "deepl":
                 from deep_translator import DeeplTranslator
-                return DeeplTranslator(api_key=api_key, source=src, target=tgt)
+                tr = DeeplTranslator(api_key=_deepl_key, source=src, target=tgt, use_free_api=False)
+                _custom = os.environ.get("DEEPL_BASE_URL")
+                if _custom:
+                    tr._base_url = _custom.rstrip("/") + "/"
+                return tr
             if provider == "mymemory":
                 from deep_translator import MyMemoryTranslator
-                return MyMemoryTranslator(source=src, target=tgt)
+                return MyMemoryTranslator(source=src, target=tgt, proxies=_proxies)
             if provider == "microsoft":
                 from deep_translator import MicrosoftTranslator
-                return MicrosoftTranslator(api_key=api_key, source=src, target=tgt)
+                tr = MicrosoftTranslator(api_key=_msft_key, source=src, target=tgt, proxies=_proxies)
+                _custom = os.environ.get("MICROSOFT_BASE_URL")
+                if _custom:
+                    tr._base_url = _custom.rstrip("/") + "/translate?api-version=3.0"
+                return tr
             from deep_translator import GoogleTranslator
-            return GoogleTranslator(source=src, target=tgt)
+            return GoogleTranslator(source=src, target=tgt, proxies=_proxies)
 
         def _translate_single(seg):
             seg_lc = (

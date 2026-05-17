@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Plus, Trash2, BookOpen, Sparkles, Check, X } from 'lucide-react';
+import { Plus, Trash2, BookOpen, Sparkles, Check, ChevronDown } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { Panel, Button, Input, Badge } from '../ui';
 import {
@@ -15,6 +15,7 @@ export default function GlossaryPanel({
   targetLang,
   segments = [],
   onChange,
+  onClose,
 }) {
   const { t } = useTranslation();
   const [terms, setTerms] = useState([]);
@@ -126,18 +127,27 @@ export default function GlossaryPanel({
           >
             {t('glossary.auto_btn')}
           </Button>
-          {autoCount > 0 && (
-            <Button
-              variant="ghost" size="sm"
-              onClick={onClearAuto}
-              title={t('glossary.clear_auto_title')}
-            >
-              {t('glossary.clear_auto_btn')}
-            </Button>
-          )}
-        </>
-      }
-    >
+            {autoCount > 0 && (
+              <Button
+                variant="ghost" size="sm"
+                onClick={onClearAuto}
+                title={t('glossary.clear_auto_title')}
+              >
+                {t('glossary.clear_auto_btn')}
+              </Button>
+            )}
+            {onClose && (
+              <Button
+                variant="ghost" size="sm"
+                onClick={onClose}
+                title={t('glossary.close')}
+              >
+                <ChevronDown size={11} />
+              </Button>
+            )}
+          </>
+        }
+      >
       {!projectId ? (
         <div className="glossary-panel__empty">
           {t('glossary.empty_save')}

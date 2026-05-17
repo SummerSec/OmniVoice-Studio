@@ -166,7 +166,8 @@ export default function DubTab(props) {
   // Glossary: hide behind a chip when empty, auto-open once terms exist.
   const glossaryTermCount = useAppStore(s => s.glossaryTerms.length);
   const [glossaryOpen, setGlossaryOpen] = useState(false);
-  const glossaryVisible = glossaryOpen || glossaryTermCount > 0;
+  const [glossaryHidden, setGlossaryHidden] = useState(false);
+  const glossaryVisible = glossaryOpen || (glossaryTermCount > 0 && !glossaryHidden);
 
   // Phase 4.3 — between-stage checkpoint banner.
   const reviewMode = useAppStore(s => s.reviewMode);
@@ -816,10 +817,10 @@ export default function DubTab(props) {
                 <button
                   type="button"
                   className="dub-glossary-chip"
-                  onClick={() => setGlossaryOpen(true)}
+                  onClick={() => { setGlossaryOpen(true); setGlossaryHidden(false); }}
                   title={t('dub.glossary_title')}
                 >
-                  {t('dub.glossary_btn', { count: 0 })}
+                  {t('dub.glossary_btn', { count: glossaryTermCount })}
                 </button>
               )}
               {dubJobId && glossaryVisible && (
@@ -830,6 +831,7 @@ export default function DubTab(props) {
                     targetLang={dubLangCode}
                     segments={dubSegments}
                     onChange={onGlossaryChange}
+                    onClose={() => { setGlossaryHidden(true); setGlossaryOpen(false); }}
                   />
                 </div>
               )}

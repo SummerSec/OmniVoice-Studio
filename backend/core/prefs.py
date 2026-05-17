@@ -64,6 +64,13 @@ def set_(key: str, value: Any) -> None:
     _save(data)
 
 
+def delete(key: str) -> None:
+    """Remove *key* from prefs.json if present."""
+    data = _load()
+    data.pop(key, None)
+    _save(data)
+
+
 def resolve(key: str, *, env: Optional[str] = None, default: Any = None) -> Any:
     """Env var > prefs.json > default. Env is authoritative so power-users
     can pin a backend without the UI silently changing it."""

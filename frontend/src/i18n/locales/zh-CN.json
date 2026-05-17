@@ -193,7 +193,7 @@
     "desc": "API 密钥和令牌<1>仅在此会话中</1>有效。如需跨重启持久化，请在 shell 配置文件中设置环境变量。",
     "hf_token": "HuggingFace 令牌",
     "hf_help": "用于说话人分离和更快的模型下载。在 huggingface.co/settings/tokens 获取。",
-    "translate_key": "翻译 API 密钥",
+    "translate_key": "LLM API 密钥",
     "translate_help": "可选 — 用于 DeepL、OpenAI 或付费翻译提供商。Google 翻译（免费版）不需要。",
     "save": "保存",
     "saved": "✓ 已设置",
@@ -204,12 +204,20 @@
     "save_error": "保存失败：{{message}}",
     "deepl_key": "DeepL API 密钥",
     "deepl_help": "用于 DeepL 翻译引擎。在 deepl.com/pro-api 获取。",
+    "deepl_base_url": "DeepL 自定义地址",
+    "deepl_base_url_help": "自定义 DeepL API 端点（默认 https://api.deepl.com/v2）。代理或自托管时修改。",
     "microsoft_key": "Microsoft Translator 密钥",
     "microsoft_help": "用于 Microsoft Translator 引擎。从 Azure 门户获取。",
+    "microsoft_base_url": "Microsoft Translator 自定义地址",
+    "microsoft_base_url_help": "自定义 Azure Translator 端点（默认 https://api.cognitive.microsofttranslator.com）。",
     "llm_base_url": "LLM 基础地址",
     "llm_base_url_help": "用于精译质量或 LLM 引擎。任何 OpenAI 兼容的端点（OpenAI、Ollama、LM Studio 等）。",
     "llm_model": "LLM 模型名称",
-    "llm_model_help": "LLM 引擎使用的模型名称（如 gpt-4o、deepseek-chat、qwen2.5）。"
+    "llm_model_help": "LLM 引擎使用的模型名称（如 gpt-4o、deepseek-chat、qwen2.5）。",
+    "group_huggingface": "HuggingFace",
+    "group_translate": "翻译引擎（LLM / 精译）",
+    "group_deepl": "DeepL 自定义地址",
+    "group_microsoft": "Microsoft Translator 自定义地址"
   },
   "engines": {
     "review_on": "审阅",
@@ -439,7 +447,8 @@
     "add_term": "添加术语",
     "hint": "术语表会注入到每次精译翻译的提示词中。手动条目优先级更高。",
     "auto_badge": "自动",
-    "manual_badge": "手动"
+    "manual_badge": "手动",
+    "close": "收起术语表"
   },
   "segment": {
     "time": "时间",

@@ -5,6 +5,7 @@ import psutil
 import asyncio
 import logging
 from fastapi import APIRouter, File, UploadFile, HTTPException, Query
+from core.prefs import set_ as prefs_set, delete as prefs_delete
 from api.schemas import SysinfoResponse, SystemInfoResponse, ModelStatusResponse, LogsResponse, FlushMemoryResponse
 from fastapi.responses import FileResponse, StreamingResponse
 import torch
@@ -152,6 +153,7 @@ def system_info():
             "platform": sys.platform,
             "ffmpeg_ok": bool(_ffmpeg),
             "ffmpeg_path": _ffmpeg or "",
+            "proxy_url": os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy") or "",
         }
     except Exception as e:
         logger.exception("system_info failed — returning safe defaults")
@@ -167,6 +169,7 @@ def system_info():
             "device": "cpu",
             "python": sys.version.split()[0],
             "platform": sys.platform,
+            "proxy_url": "",
             "error": str(e),
         }
 
@@ -524,18 +527,27 @@ def system_notifications():
 # ── Environment variable setter ───────────────────────────────────────────
 
 
+PERSISTENT_KEYS = {
+    "HF_TOKEN",
+    "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY",
+    "http_proxy", "https_proxy", "all_proxy",
+    "FFMPEG_PATH", "FFPROBE_PATH",
+    "TRANSLATE_BASE_URL", "TRANSLATE_API_KEY", "TRANSLATE_MODEL",
+    "DEEPL_API_KEY", "DEEPL_BASE_URL",
+    "MICROSOFT_API_KEY", "MICROSOFT_BASE_URL",
+}
+
+
 @router.post("/system/set-env")
 async def set_env_var(body: dict):
-    """Set an environment variable at runtime.
+    """Set an environment variable at runtime, persisted across restarts.
 
-    Currently supports:
-      - HF_TOKEN: HuggingFace access token
-      - TRANSLATE_API_KEY: Translation API key
-
-    The value is set on os.environ for the running process.
-    For persistence across restarts, users should set it in their shell profile.
+    Persistent keys (proxy, FFMPEG_PATH, HF_TOKEN, …) are saved to
+    ``prefs.json`` so they survive backend restarts.  Non-persistent keys
+    (TRANSLATE_API_KEY) are set on ``os.environ`` only for the current
+    process lifetime.
     """
-    ALLOWED_KEYS = {"HF_TOKEN", "TRANSLATE_API_KEY", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "FFMPEG_PATH", "FFPROBE_PATH"}
+    ALLOWED_KEYS = PERSISTENT_KEYS | {"TRANSLATE_API_KEY"}
     key = body.get("key", "")
     value = body.get("value", "")
 
@@ -557,6 +569,13 @@ async def set_env_var(body: dict):
     else:
         os.environ.pop(key, None)
         logger.info("Cleared environment variable: %s", key)
+
+    # Persist to prefs.json so the value survives restart
+    prefs_key = f"env.{key}"
+    if value:
+        prefs_set(prefs_key, value)
+    elif key in PERSISTENT_KEYS:
+        prefs_delete(prefs_key)
 
     return {"key": key, "set": bool(value)}
 
